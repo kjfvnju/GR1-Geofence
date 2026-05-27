@@ -1,22 +1,26 @@
 const API = 'http://localhost:4000/api/positions';
 const SUBJECT_ID = 1;
 
-const baseLat = 21.0285;   // điểm xuất phát (Hà Nội, đổi tùy ý)
-const baseLng = 105.8542;
+// Bắt đầu ở GIỮA vùng đã vẽ (tâm hình vuông quanh nhà)
+const startLat = 21.0285;
+const startLng = 105.8542;
 let step = 0;
 
 async function sendPosition() {
-  const lat = baseLat + step * 0.0002;   // dịch dần để giả lập di chuyển
-  const lng = baseLng + step * 0.0002;
+  // Đi dần về phía ĐÔNG (tăng lng). Vùng kết thúc ở lng ~105.8552.
+  // Mỗi bước +0.0002 độ (~22m). Sau ~6 bước sẽ vượt ranh giới ra ngoài.
+  const lat = startLat;
+  const lng = startLng + step * 0.0001;
 
   await fetch(API, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ subjectId: SUBJECT_ID, lat, lng, accuracy: 10 }),
+    body: JSON.stringify({ subjectId: SUBJECT_ID, lat, lng, accuracy: 5 }),
   });
-  console.log(`Gửi điểm #${step}: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+
+  console.log(`Gửi điểm #${step}: lat=${lat.toFixed(5)}, lng=${lng.toFixed(5)}`);
   step++;
 }
 
-setInterval(sendPosition, 2000);   // bắn mỗi 2 giây
+setInterval(sendPosition, 2000);
 sendPosition();
