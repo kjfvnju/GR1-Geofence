@@ -18,6 +18,12 @@ const io = new Server(httpServer, { cors: { origin: '*' } });  // bật WebSocke
 // Khi một trình duyệt kết nối WebSocket
 io.on('connection', (socket) => {
   console.log('Client kết nối:', socket.id);
+
+  // Client gửi userId lên → server cho socket này vào phòng riêng
+  socket.on('join', (userId: number) => {
+    socket.join(`user:${userId}`);
+    console.log(`Socket ${socket.id} đã vào phòng user:${userId}`);
+  });
 });
 
 app.get('/api/subjects', auth, async (req: AuthRequest, res) => {
@@ -49,9 +55,9 @@ app.post('/api/subjects', auth, async (req: AuthRequest, res) => {
 
 // API nhận vị trí mới. async vì bên trong có await gọi database.
 app.post('/api/positions', async (req, res) => {
-  const { subjectId, lat, lng, accuracy } = req.body;  // tách dữ liệu gửi lên
+  const { subjectId, lat, lng, accuracy } = req.body;
   try {
-    // Lưu điểm vào database. CHÚ Ý: ST_MakePoint(lng, lat) — kinh độ TRƯỚC!
+    // 1. Lưu điểm vào DB
     const result = await pool.query(
       `INSERT INTO positions (subject_id, geom, accuracy)
        VALUES ($1, ST_SetSRID(ST_MakePoint($2, $3), 4326), $4)
@@ -59,18 +65,30 @@ app.post('/api/positions', async (req, res) => {
       [subjectId, lng, lat, accuracy ?? null]
     );
 
-    // (sau khi đã INSERT điểm vào positions thành công, TRƯỚC khi res.json)
-    const events = await checkGeofences(subjectId, lat, lng);
+    // 2. Kiểm tra geofence
+    const events = await checkGeofences(subjectId, lat, lng, accuracy ?? null);
 
-    // Đẩy vị trí mới cho mọi trình duyệt đang xem (tuần 2 sẽ thêm kiểm tra geofence ở đây)
-    io.emit('position:update', { subjectId, lat, lng, accuracy });
-    
-    for (const ev of events) {
-      io.emit('geofence:alert', {
-        subjectId,
-        ...ev,
-        at: new Date().toISOString(),
+    // 3. Tra user_id của chủ subject — để emit đúng phòng
+    //    Nếu subjectId không tồn tại thì ownerRow.rows rỗng → dùng optional chaining
+    const ownerRow = await pool.query(
+      'SELECT user_id FROM subjects WHERE id = $1',
+      [subjectId]
+    );
+    const ownerUserId: number | undefined = ownerRow.rows[0]?.user_id;
+
+    // 4. Emit vị trí — chỉ vào phòng của chủ subject
+    if (ownerUserId !== undefined) {
+      io.to(`user:${ownerUserId}`).emit('position:update', {
+        subjectId, lat, lng, accuracy,
       });
+
+      for (const ev of events) {
+        io.to(`user:${ownerUserId}`).emit('geofence:alert', {
+          subjectId,
+          ...ev,
+          at: new Date().toISOString(),
+        });
+      }
     }
 
     res.json({ ok: true, id: result.rows[0].id });

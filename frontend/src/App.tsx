@@ -22,7 +22,7 @@ L.Marker.prototype.options.icon = L.icon({
 const socket = io('http://localhost:4000');
 
 type Pos = { lat: number; lng: number; accuracy?: number };
-type Alert = { geofenceName: string; type: string; at: string };
+type Alert = { geofenceName: string; type: string; at: string; confidence: number | null };
 // Geofence trả từ GET: { id, name, geometry: GeoJSON }
 type Geofence = { id: number; name: string; geometry: any };
 
@@ -32,6 +32,9 @@ function MapView({ onLogout }: { onLogout: () => void }) {
   const [geofences, setGeofences] = useState<Geofence[]>([]);
   const [subjects, setSubjects] = useState<any[]>([]);          // danh sách đối tượng của tài khoản
   const [subjectId, setSubjectId] = useState<number | null>(null);  // đối tượng đang xem; null = chưa chọn
+
+  // Lấy userId từ sessionStorage — lưu lúc login, dùng để join room Socket.IO
+  const userId = Number(sessionStorage.getItem('userId'));
 
   const loadGeofences = useCallback(async () => {
     if (!subjectId) return;     // chưa chọn đối tượng thì chưa tải gì
@@ -46,15 +49,21 @@ function MapView({ onLogout }: { onLogout: () => void }) {
 
   // EFFECT 1 — socket: gắn MỘT LẦN lúc mở trang, gỡ khi rời trang
   useEffect(() => {
-    socket.on('position:update', (data: Pos) => setPos(data));
-    socket.on('geofence:alert', (a: Alert) => {
-      setAlerts((prev) => [a, ...prev].slice(0, 8));
+    const userId = Number(sessionStorage.getItem('userId'));
+    socket.emit('join', userId);
+
+    socket.on('position:update', (data: any) => {
+      setPos({ lat: data.lat, lng: data.lng, accuracy: data.accuracy });
     });
+    socket.on('geofence:alert', (a: any) => {
+      setAlerts((prev) => [a, ...prev].slice(0, 20));
+    });
+
     return () => {
       socket.off('position:update');
       socket.off('geofence:alert');
     };
-  }, []);   // [] = chỉ chạy 1 lần, không gắn/gỡ lại khi đổi subject
+  }, []);
 
   // EFFECT 2 — tải vùng mỗi khi đổi đối tượng
   useEffect(() => {
@@ -186,6 +195,12 @@ function MapView({ onLogout }: { onLogout: () => void }) {
             <div key={i} style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #eee' }}>
               <b>{a.type}</b> — {a.geofenceName}<br />
               <small>{new Date(a.at).toLocaleTimeString()}</small>
+              {/* Thêm dòng này */}
+              {a.confidence !== null && a.confidence < 0.5 && (
+                <div style={{ color: '#e67e00', fontSize: 12, marginTop: 2 }}>
+                  ⚠ Độ tin cậy thấp (GPS nhiễu)
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -227,7 +242,7 @@ function MapView({ onLogout }: { onLogout: () => void }) {
 }
 
 export default function App() {
-  // Khởi tạo state từ localStorage: F5 mà còn vé thì vào thẳng bản đồ
+  // Khởi tạo state từ sessionStorage: F5 mà còn vé thì vào thẳng bản đồ
   const [loggedIn, setLoggedIn] = useState(isLoggedIn());
 
   if (!loggedIn) {

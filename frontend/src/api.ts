@@ -2,7 +2,7 @@ const BASE = 'http://localhost:4000';
 
 // Hàm lõi: mọi request đi qua đây. Tự gắn token nếu có.
 async function request(path: string, options: RequestInit = {}) {
-  const token = localStorage.getItem('token');
+  const token = sessionStorage.getItem('token');
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string>),
@@ -29,20 +29,23 @@ export const api = {
 // Auth riêng cho gọn
 export async function login(username: string, password: string) {
   const data = await api.post('/api/auth/login', { username, password });
-  localStorage.setItem('token', data.token);   // lưu vé ngay khi đăng nhập xong
+  sessionStorage.setItem('token', data.token);   // lưu vé ngay khi đăng nhập xong
+  sessionStorage.setItem('userId', String(data.user.id));
   return data.user;
 }
 
 export async function register(username: string, password: string) {
   const data = await api.post('/api/auth/register', { username, password });
-  localStorage.setItem('token', data.token);
+  sessionStorage.setItem('token', data.token);
+  sessionStorage.setItem('userId', String(data.user.id));
   return data.user;
 }
 
 export function logout() {
-  localStorage.removeItem('token');
+  sessionStorage.removeItem('token');
+  sessionStorage.removeItem('userId');
 }
 
 export function isLoggedIn(): boolean {
-  return !!localStorage.getItem('token');   // !! đổi chuỗi/null thành true/false
+  return !!sessionStorage.getItem('token');   // !! đổi chuỗi/null thành true/false
 }
