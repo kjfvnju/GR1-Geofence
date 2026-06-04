@@ -97,6 +97,45 @@ app.post('/api/positions', async (req, res) => {
   }
 });
 
+app.get('/api/positions/:subjectId', auth, async (req: AuthRequest, res) => {
+  const { subjectId } = req.params;
+
+  // Kiểm tra subject thuộc về user này
+  if (!(await ownsSubject(Number(subjectId), req.userId!))) {
+    return res.status(403).json({ error: 'Không có quyền' });
+  }
+
+  const { rows } = await pool.query(
+    `SELECT ST_X(geom) AS lng, ST_Y(geom) AS lat, accuracy, recorded_at
+     FROM positions
+     WHERE subject_id = $1
+     ORDER BY recorded_at DESC
+     LIMIT 200`,
+    [subjectId]
+  );
+  res.json(rows);
+});
+
+app.get('/api/events/:subjectId', auth, async (req: AuthRequest, res) => {
+  const { subjectId } = req.params;
+
+  if (!(await ownsSubject(Number(subjectId), req.userId!))) {
+    return res.status(403).json({ error: 'Không có quyền' });
+  }
+
+  const { rows } = await pool.query(
+    `SELECT e.id, e.type, e.confidence, e.occurred_at,
+            g.name AS geofence_name
+     FROM events e
+     LEFT JOIN geofences g ON g.id = e.geofence_id
+     WHERE e.subject_id = $1
+     ORDER BY e.occurred_at DESC
+     LIMIT 50`,
+    [subjectId]
+  );
+  res.json(rows);
+});
+
 // ĐĂNG KÝ: nhận username + password → hash → lưu users → cấp vé luôn
 app.post('/api/auth/register', async (req, res) => {
   const { username, password } = req.body;

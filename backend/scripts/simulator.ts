@@ -1,5 +1,5 @@
 const API = 'http://localhost:4000/api/positions';
-const SUBJECT_ID = 2;
+const SUBJECT_ID = 3;
 
 // Bắt đầu ở GIỮA vùng đã vẽ (tâm hình vuông quanh nhà)
 const startLat = 21.0285;
@@ -11,7 +11,7 @@ async function sendPosition() {
   // Mỗi bước +0.0002 độ (~22m). Sau ~6 bước sẽ vượt ranh giới ra ngoài.
   const lat = startLat;
   const lng = startLng - step * 0.0002;
-  const accuracy = 50 + step * 10;
+  const accuracy = 5;
 
   await fetch(API, {
     method: 'POST',
@@ -23,5 +23,5 @@ async function sendPosition() {
   step++;
 }
 
-setInterval(sendPosition, 2000);
+setInterval(sendPosition, 1000);
 sendPosition();

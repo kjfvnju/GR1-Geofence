@@ -2,7 +2,6 @@ import jwt from 'jsonwebtoken';
 import type { Request, Response, NextFunction } from 'express';
 
 // Mở rộng kiểu Request của Express để thêm trường userId do ta gắn vào.
-// Làm vậy để KHỎI phải dùng `any` (tránh đúng cảnh báo no-explicit-any bạn gặp Tuần 2).
 export interface AuthRequest extends Request {
   userId?: number;
 }

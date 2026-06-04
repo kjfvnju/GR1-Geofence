@@ -1,41 +1,78 @@
 import { pool } from './db';
 
-// Bộ nhớ trạng thái: với mỗi cặp (subject, fence), điểm gần nhất đang IN hay OUT.
-// Map sống trong RAM khi server chạy. Tuần 4 ta sẽ bàn hạn chế của cách này.
-const lastState = new Map<string, 'IN' | 'OUT'>();
+type State = 'IN' | 'OUT';
 
-export async function checkGeofences(subjectId: number, lat: number, lng: number, accuracy: number | null) {
-  // Hỏi PostGIS: với mỗi vùng ĐANG BẬT của subject này, điểm có nằm trong không?
-  // ST_Contains(vùng, điểm) = true nếu điểm nằm trong đa giác.
+interface FenceState {
+  state: State;           // trạng thái hiện tại
+  candidate: State | null; // ứng viên chờ xác nhận
+  candidateSince: number | null; // thời điểm bắt đầu ứng viên (ms)
+}
+
+const DWELL_MS = 5_000; // 5 giây
+
+const fenceStates = new Map<string, FenceState>();
+
+export async function checkGeofences(
+  subjectId: number, lat: number, lng: number, accuracy: number | null
+) {
   const { rows } = await pool.query(
     `SELECT id, name,
             ST_Contains(geom, ST_SetSRID(ST_MakePoint($2, $3), 4326)) AS inside
      FROM geofences
      WHERE subject_id = $1 AND active = TRUE`,
-    [subjectId, lng, lat]   // CẠM BẪY: lng trước lat (ST_MakePoint)
+    [subjectId, lng, lat]
   );
 
   const events = [];
-  for (const fence of rows) {
-    const key = `${subjectId}:${fence.id}`;               // khóa định danh cặp
-    const now: 'IN' | 'OUT' = fence.inside ? 'IN' : 'OUT'; // trạng thái hiện tại
-    const prev = lastState.get(key);                       // trạng thái lần trước
+  const now = Date.now();
 
-    // Chỉ phát sự kiện khi trạng thái THAY ĐỔI.
-    // prev phải tồn tại (đã có lần đo trước) thì so sánh mới có nghĩa.
-    if (prev && prev !== now) {
-      const type = now === 'OUT' ? 'EXIT' : 'ENTER';
-      // Tính confidence từ accuracy
-      const confidence = accuracy !== null ? Math.max(0, 1 - accuracy / 100) : null;
-      await pool.query(
-        `INSERT INTO events (subject_id, geofence_id, type, confidence) VALUES ($1, $2, $3, $4)`,
-        [subjectId, fence.id, type, confidence]
-      );
-      events.push({ geofenceId: fence.id, geofenceName: fence.name, type, confidence });
+  for (const fence of rows) {
+    const key = `${subjectId}:${fence.id}`;
+    const current: State = fence.inside ? 'IN' : 'OUT';
+
+    // Lấy trạng thái cũ, hoặc khởi tạo nếu lần đầu gặp
+    if (!fenceStates.has(key)) {
+      fenceStates.set(key, { state: current, candidate: null, candidateSince: null });
+      continue; // lần đầu tiên, chưa có gì để so sánh
     }
 
-    lastState.set(key, now);  // luôn cập nhật trạng thái cho lần đo sau
+    const fs = fenceStates.get(key)!;
+
+    if (current === fs.state) {
+      // Vẫn giữ trạng thái cũ → hủy ứng viên nếu có
+      fs.candidate = null;
+      fs.candidateSince = null;
+    } else {
+      // Khác trạng thái cũ → xử lý ứng viên
+      if (fs.candidate === current) {
+        // Ứng viên này đang chờ — kiểm tra đã đủ thời gian chưa
+        if (now - fs.candidateSince! >= DWELL_MS) {
+          // ĐỦ thời gian → công nhận, bắn sự kiện thật
+          const type = current === 'OUT' ? 'EXIT' : 'ENTER';
+          const confidence = accuracy !== null
+            ? Math.max(0, 1 - accuracy / 100)
+            : null;
+
+          await pool.query(
+            `INSERT INTO events (subject_id, geofence_id, type, confidence)
+             VALUES ($1, $2, $3, $4)`,
+            [subjectId, fence.id, type, confidence]
+          );
+          events.push({ geofenceId: fence.id, geofenceName: fence.name, type, confidence });
+
+          // Cập nhật trạng thái chính thức, xóa ứng viên
+          fs.state = current;
+          fs.candidate = null;
+          fs.candidateSince = null;
+        }
+        // Chưa đủ thời gian → giữ nguyên ứng viên, chờ tiếp
+      } else {
+        // Ứng viên mới (lần đầu thấy trạng thái khác) → bắt đầu đếm thời gian
+        fs.candidate = current;
+        fs.candidateSince = now;
+      }
+    }
   }
 
-  return events;  // mảng sự kiện vừa phát (thường rỗng; chỉ có khi vừa đổi trạng thái)
+  return events;
 }

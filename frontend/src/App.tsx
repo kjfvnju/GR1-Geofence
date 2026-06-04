@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AttributionControl, MapContainer, TileLayer, Marker, Popup, GeoJSON, FeatureGroup } from 'react-leaflet';
+import { AttributionControl, MapContainer, TileLayer, Marker, Popup, GeoJSON, FeatureGroup, Polyline } from 'react-leaflet';
 import 'leaflet-draw';
 import { EditControl } from 'react-leaflet-draw';
 import { io } from 'socket.io-client';
@@ -27,11 +27,17 @@ type Alert = { geofenceName: string; type: string; at: string; confidence: numbe
 type Geofence = { id: number; name: string; geometry: any };
 
 function MapView({ onLogout }: { onLogout: () => void }) {
-  const [pos, setPos] = useState<Pos | null>(null);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [geofences, setGeofences] = useState<Geofence[]>([]);
   const [subjects, setSubjects] = useState<any[]>([]);          // danh sách đối tượng của tài khoản
   const [subjectId, setSubjectId] = useState<number | null>(null);  // đối tượng đang xem; null = chưa chọn
+  const [showLog, setShowLog] = useState(false);
+  const [eventLog, setEventLog] = useState<any[]>([]);
+  const [posMap, setPosMap] = useState<Record<number, Pos>>({});
+  const [trailMap, setTrailMap] = useState<Record<number, [number, number][]>>({});
+
+  const pos = subjectId ? posMap[subjectId] ?? null : null;
+  const trail = subjectId ? trailMap[subjectId] ?? [] : [];
 
   // Lấy userId từ sessionStorage — lưu lúc login, dùng để join room Socket.IO
   const userId = Number(sessionStorage.getItem('userId'));
@@ -53,7 +59,11 @@ function MapView({ onLogout }: { onLogout: () => void }) {
     socket.emit('join', userId);
 
     socket.on('position:update', (data: any) => {
-      setPos({ lat: data.lat, lng: data.lng, accuracy: data.accuracy });
+      setPosMap((prev) => ({ ...prev, [data.subjectId]: { lat: data.lat, lng: data.lng, accuracy: data.accuracy } }));
+      setTrailMap((prev) => ({
+        ...prev,
+        [data.subjectId]: [[data.lat, data.lng] as [number, number], ...(prev[data.subjectId] ?? [])].slice(0, 200),
+     }));
     });
     socket.on('geofence:alert', (a: any) => {
       setAlerts((prev) => [a, ...prev].slice(0, 20));
@@ -67,15 +77,40 @@ function MapView({ onLogout }: { onLogout: () => void }) {
 
   // EFFECT 2 — tải vùng mỗi khi đổi đối tượng
   useEffect(() => {
-    if (!subjectId) return;            // chưa chọn → không làm gì, KHÔNG set state (tránh set đồng bộ)
+    if (!subjectId) return;
 
-    let active = true;                 // cờ chống "câu trả lời cũ về muộn"
+    let active = true;
+
+    // Xóa dữ liệu cũ ngay khi đổi subject — tránh hiện nhầm
+    setGeofences([]);
+
+    // Tải vùng
     api.get(`/api/geofences/${subjectId}`)
       .then((data) => { if (active) setGeofences(Array.isArray(data) ? data : []); })
       .catch((e) => { console.error('Lỗi tải vùng:', e); if (active) setGeofences([]); });
 
-    return () => { active = false; };  // dọn khi subjectId đổi / rời trang
-  }, [subjectId]);                     // phụ thuộc thẳng subjectId, không cần loadGeofences nữa
+    // Tải lịch sử hành trình
+    api.get(`/api/positions/${subjectId}`)
+      .then((data) => {
+        if (active) {
+          const points: [number, number][] = Array.isArray(data)
+            ? data.map((p: any) => [p.lat, p.lng])
+            : [];
+          if (active) {
+            setTrailMap((prev) => ({ ...prev, [subjectId]: points }));
+            if (points.length > 0) {
+              setPosMap((prev) => ({ ...prev, [subjectId]: { lat: points[0][0], lng: points[0][1] } }));
+            }
+          }
+        }
+      })
+      .catch((e) => { 
+        console.error('Lỗi tải hành trình:', e); 
+        if (active) setTrailMap((prev) => ({ ...prev, [subjectId]: [] }));
+      });
+      
+    return () => { active = false; };
+  }, [subjectId]);
 
   useEffect(() => {
     async function loadSubjects() {
@@ -129,6 +164,17 @@ function MapView({ onLogout }: { onLogout: () => void }) {
     }
   }
 
+  async function handleOpenLog() {
+    if (!subjectId) return;
+    try {
+      const data = await api.get(`/api/events/${subjectId}`);
+      setEventLog(Array.isArray(data) ? data : []);
+      setShowLog(true);
+    } catch (e) {
+      console.error('Lỗi tải nhật ký:', e);
+    }
+  }
+
   return (
     <div style={{ position: 'relative', height: '100vh' }}>
       <div style={{ position: 'absolute', bottom: 10, left: 10, zIndex: 1000, display: 'flex', gap: 8 }}>
@@ -150,6 +196,12 @@ function MapView({ onLogout }: { onLogout: () => void }) {
           style={{ padding: '6px 12px', fontSize: 13, borderRadius: 4, border: '1px solid #999', background: '#fff', cursor: 'pointer' }}
         >
           Thêm đối tượng
+        </button>
+        <button
+          onClick={handleOpenLog}
+          style={{ padding: '6px 12px', fontSize: 13, borderRadius: 4, border: '1px solid #999', background: '#fff', cursor: 'pointer' }}
+        >
+          📋 Nhật ký
         </button>
       </div>
       <button
@@ -206,6 +258,57 @@ function MapView({ onLogout }: { onLogout: () => void }) {
         </div>
       )}
 
+      {showLog && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 2000,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: 8, padding: 20,
+            width: 480, maxHeight: '70vh', display: 'flex', flexDirection: 'column',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <strong style={{ fontSize: 16 }}>📋 Nhật ký cảnh báo</strong>
+              <button
+                onClick={() => setShowLog(false)}
+                style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer' }}
+              >✕</button>
+            </div>
+
+            {eventLog.length === 0 ? (
+              <p style={{ color: '#999', textAlign: 'center', marginTop: 20 }}>Chưa có sự kiện nào</p>
+            ) : (
+              <div style={{ overflowY: 'auto' }}>
+                {eventLog.map((e) => (
+                  <div key={e.id} style={{
+                    padding: '10px 0', borderBottom: '1px solid #eee',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
+                  }}>
+                    <div>
+                      <span style={{
+                        background: e.type === 'EXIT' ? '#d33' : '#2a9d2a',
+                        color: '#fff', borderRadius: 4, padding: '2px 8px', fontSize: 12, marginRight: 8,
+                      }}>
+                        {e.type}
+                      </span>
+                      <span>{e.geofence_name ?? 'Vùng đã xóa'}</span>
+                      {e.confidence !== null && e.confidence < 0.5 && (
+                        <span style={{ color: '#e67e00', fontSize: 12, marginLeft: 8 }}>⚠ Tin cậy thấp</span>
+                      )}
+                    </div>
+                    <small style={{ color: '#999', whiteSpace: 'nowrap', marginLeft: 12 }}>
+                      {new Date(e.occurred_at).toLocaleString('vi-VN')}
+                    </small>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <MapContainer center={[21.0285, 105.8542]} zoom={15} attributionControl={false} style={{ height: '100%' }}>
         <TileLayer
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -216,6 +319,10 @@ function MapView({ onLogout }: { onLogout: () => void }) {
         {geofences.map((g) => (
           <GeoJSON key={g.id} data={g.geometry} style={{ color: '#d33', weight: 2 }} />
         ))}
+        {/* Vết hành trình — đường xanh nối các điểm đã đi */}
+        {trail.length > 1 && (
+          <Polyline positions={trail} color="blue" weight={2} opacity={0.6} />
+        )}
 
         {/* Công cụ vẽ vùng bằng chuột (Bước 2.2) */}
         <FeatureGroup>
