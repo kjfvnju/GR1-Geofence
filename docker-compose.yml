@@ -1,0 +1,39 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4    # PostgreSQL 16 + PostGIS 3.4, không cần cài tay
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: geofence_db
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql://postgres:${DB_PASSWORD}@db:5432/geofence_db
+      JWT_SECRET: ${JWT_SECRET}
+      PORT: 4000
+    depends_on:
+      db:
+        condition: service_healthy    # đợi DB sẵn sàng mới khởi động backend
+    ports:
+      - "4000:4000"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://localhost:4000    # cho local test
+    ports:
+      - "8080:80"
+
+volumes:
+  pgdata:    # volume tồn tại qua restart — dữ liệu không mất

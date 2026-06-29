@@ -1,4 +1,4 @@
-const BASE = 'http://localhost:4000';
+const BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
 // Hàm lõi: mọi request đi qua đây. Tự gắn token nếu có.
 async function request(path: string, options: RequestInit = {}) {

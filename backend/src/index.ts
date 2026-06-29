@@ -4,9 +4,9 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import { pool } from './db';
-import { checkGeofences } from './geofenceEngine';
-import { auth, type AuthRequest } from './authMiddleware';
+import { pool } from './db.js';
+import { checkGeofences } from './geofenceEngine.js';
+import { auth, type AuthRequest } from './authMiddleware.js';
 
 const app = express();        // tạo ứng dụng web
 app.use(cors());              // cho phép frontend (cổng khác) gọi vào

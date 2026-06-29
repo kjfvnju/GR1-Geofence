@@ -19,7 +19,7 @@ L.Marker.prototype.options.icon = L.icon({
   shadowSize: [41, 41],
 });
 
-const socket = io('http://localhost:4000');
+const socket = io(import.meta.env.VITE_API_URL || 'http://localhost:4000');
 
 type Pos = { lat: number; lng: number; accuracy?: number };
 type Alert = { geofenceName: string; type: string; at: string; confidence: number | null };
@@ -38,9 +38,6 @@ function MapView({ onLogout }: { onLogout: () => void }) {
 
   const pos = subjectId ? posMap[subjectId] ?? null : null;
   const trail = subjectId ? trailMap[subjectId] ?? [] : [];
-
-  // Lấy userId từ sessionStorage — lưu lúc login, dùng để join room Socket.IO
-  const userId = Number(sessionStorage.getItem('userId'));
 
   const loadGeofences = useCallback(async () => {
     if (!subjectId) return;     // chưa chọn đối tượng thì chưa tải gì
