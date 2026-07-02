@@ -72,9 +72,10 @@ app.post('/api/positions', async (req: any, res: any) => {
     const { id: deviceId, subject_id: subjectId } = dev.rows[0];
 
     // Cập nhật last_seen_at
+    const lastSeenAt = new Date().toISOString();
     await pool.query(
-      'UPDATE devices SET last_seen_at = now() WHERE id = $1',
-      [deviceId]
+      'UPDATE devices SET last_seen_at = $2 WHERE id = $1',
+      [deviceId, lastSeenAt]
     );
 
     // Lưu vị trí (thêm device_id)
@@ -99,6 +100,9 @@ app.post('/api/positions', async (req: any, res: any) => {
 
     // Emit chỉ vào room của owner
     io.to(`user:${ownerUserId}`).emit('position:update', { subjectId, lat, lng, accuracy });
+    // Báo ngay last_seen_at mới cho dashboard — tránh badge/banner "mất tín hiệu" bị kẹt ở trạng thái
+    // cũ vì danh sách devices chỉ tải lại khi đổi subject, không tự làm mới khi có tín hiệu quay lại.
+    io.to(`user:${ownerUserId}`).emit('device:heartbeat', { deviceId, subjectId, lastSeenAt });
     for (const ev of events) {
       io.to(`user:${ownerUserId}`).emit('geofence:alert', { subjectId, ...ev });
     }
@@ -116,11 +120,20 @@ app.post('/api/devices/heartbeat', async (req: any, res: any) => {
   if (!token) return res.status(401).json({ error: 'Thiếu device token' });
 
   try {
+    const lastSeenAt = new Date().toISOString();
     const result = await pool.query(
-      'UPDATE devices SET last_seen_at = now() WHERE device_token = $1 RETURNING id',
-      [token]
+      'UPDATE devices SET last_seen_at = $2 WHERE device_token = $1 RETURNING id, subject_id',
+      [token, lastSeenAt]
     );
     if (result.rowCount === 0) return res.status(401).json({ error: 'Thiết bị không hợp lệ' });
+
+    const { id: deviceId, subject_id: subjectId } = result.rows[0];
+    const owner = await pool.query('SELECT user_id FROM subjects WHERE id = $1', [subjectId]);
+    const ownerUserId = owner.rows[0]?.user_id;
+    if (ownerUserId) {
+      io.to(`user:${ownerUserId}`).emit('device:heartbeat', { deviceId, subjectId, lastSeenAt });
+    }
+
     res.json({ ok: true });
   } catch (e: any) {
     res.status(500).json({ ok: false, error: e.message });

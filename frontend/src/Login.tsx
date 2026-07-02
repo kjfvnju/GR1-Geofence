@@ -34,10 +34,7 @@ export default function Login({ onDone }: { onDone: () => void }) {
         background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 10,
         padding: 24,
       }}>
-        <h2>{isRegister ? 'Đăng ký' : 'Đăng nhập'}</h2>
-        <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 16 }}>
-          GR1 Geofence — dashboard cho người chăm sóc
-        </p>
+        <h2 style={{ marginBottom: 16 }}>{isRegister ? 'Đăng ký' : 'Đăng nhập'}</h2>
 
         <label htmlFor="login-username" style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>
           Tài khoản

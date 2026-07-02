@@ -81,10 +81,16 @@ function MapView({ onLogout }: { onLogout: () => void }) {
     socket.on('geofence:alert', (a: any) => {
       setAlerts((prev) => [a, ...prev].slice(0, 20));
     });
+    // Vị trí mới / heartbeat đều báo lại last_seen_at ngay — để badge/banner "mất tín hiệu" tự tắt
+    // ngay khi thiết bị có tín hiệu trở lại, không phải đợi đổi subject hay tải lại trang.
+    socket.on('device:heartbeat', (data: any) => {
+      setDevices((prev) => prev.map((d) => (d.id === data.deviceId ? { ...d, last_seen_at: data.lastSeenAt } : d)));
+    });
 
     return () => {
       socket.off('position:update');
       socket.off('geofence:alert');
+      socket.off('device:heartbeat');
     };
   }, []);
 
