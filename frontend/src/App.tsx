@@ -541,7 +541,7 @@ function MapView({ onLogout }: { onLogout: () => void }) {
         {/* Marker vị trí hiện tại */}
         {pos && (
           <Marker position={[pos.lat, pos.lng]}>
-            <Popup>Vị trí hiện tại<br />Sai số: {pos.accuracy ?? '?'}m</Popup>
+            <Popup>Vị trí hiện tại<br />Sai số: {pos.accuracy != null ? Math.round(pos.accuracy) : '?'}m</Popup>
           </Marker>
         )}
       </MapContainer>
