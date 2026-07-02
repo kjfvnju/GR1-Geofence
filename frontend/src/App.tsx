@@ -23,6 +23,8 @@ L.Marker.prototype.options.icon = L.icon({
 
 const socket = io(import.meta.env.VITE_API_URL || 'http://localhost:4000');
 
+const OFFLINE_THRESHOLD_MS = 10 * 60 * 1000; // 10 phút không nhận vị trí mới = coi là mất tín hiệu
+
 type Pos = { lat: number; lng: number; accuracy?: number };
 type Alert = { geofenceName: string; type: string; at: string; confidence: number | null };
 // Geofence trả từ GET: { id, name, geometry: GeoJSON }
@@ -41,9 +43,17 @@ function MapView({ onLogout }: { onLogout: () => void }) {
   const [devices, setDevices] = useState<any[]>([]);
   const [deviceId, setDeviceId] = useState<number | null>(null);
   const [geofenceId, setGeofenceId] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
 
   const pos = subjectId ? posMap[subjectId] ?? null : null;
   const trail = subjectId ? trailMap[subjectId] ?? [] : [];
+
+  // now cập nhật mỗi 30s để badge/banner "mất tín hiệu" tự chuyển trạng thái đúng lúc,
+  // không phải chờ một sự kiện khác (đổi subject, vị trí mới...) mới kích re-render
+  function isDeviceOffline(lastSeenAt: string | null): boolean {
+    if (!lastSeenAt) return true; // chưa từng gửi vị trí = coi như offline
+    return now - new Date(lastSeenAt).getTime() > OFFLINE_THRESHOLD_MS;
+  }
 
   const loadGeofences = useCallback(async () => {
     if (!subjectId) return;     // chưa chọn đối tượng thì chưa tải gì
@@ -76,6 +86,12 @@ function MapView({ onLogout }: { onLogout: () => void }) {
       socket.off('position:update');
       socket.off('geofence:alert');
     };
+  }, []);
+
+  // EFFECT tick — cập nhật "now" mỗi 30s để phát hiện offline theo thời gian thực
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(t);
   }, []);
 
   // EFFECT 2 — tải vùng mỗi khi đổi đối tượng
@@ -309,7 +325,11 @@ function MapView({ onLogout }: { onLogout: () => void }) {
           {devices.length === 0 ? (
             <option value="">Chưa có thiết bị</option>
           ) : (
-            devices.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)
+            devices.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}{isDeviceOffline(d.last_seen_at) ? ' 🔴 mất tín hiệu' : ' 🟢'}
+              </option>
+            ))
           )}
         </select>
         <button onClick={handleCreateDevice} style={{ padding: '6px 12px', fontSize: 13, borderRadius: 4, border: '1px solid #999', background: '#fff', cursor: 'pointer' }}>
@@ -366,6 +386,26 @@ function MapView({ onLogout }: { onLogout: () => void }) {
       >
         Đăng xuất
       </button>
+      {/* Banner cảnh báo vàng — thiết bị đang chọn mất tín hiệu quá 10 phút */}
+      {deviceId && (() => {
+        const dev = devices.find((d) => d.id === deviceId);
+        if (!dev || !isDeviceOffline(dev.last_seen_at)) return null;
+        const minsAgo = dev.last_seen_at
+          ? Math.floor((now - new Date(dev.last_seen_at).getTime()) / 60000)
+          : null;
+        return (
+          <div style={{
+            position: 'absolute', top: 10, left: 10, zIndex: 1000,
+            background: '#fff3cd', border: '2px solid #e0a800', borderRadius: 8,
+            padding: '8px 14px', fontSize: 13, color: '#856404',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+          }}>
+            ⚠ Mất tín hiệu thiết bị "{dev.name}"
+            {minsAgo !== null ? ` — ${minsAgo} phút trước` : ' — chưa từng gửi vị trí'}
+          </div>
+        );
+      })()}
+
       {/* Banner cảnh báo đỏ — chỉ hiện khi có cảnh báo */}
       {alerts.length > 0 && (
         <div style={{
