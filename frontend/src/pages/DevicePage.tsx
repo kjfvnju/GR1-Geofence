@@ -3,17 +3,20 @@ import { useEffect, useState } from 'react';
 const API = import.meta.env.VITE_API_URL;
 
 export default function DevicePage() {
-  const [token, setToken] = useState(localStorage.getItem('device_token') ?? '');
   const [status, setStatus] = useState('Chưa bắt đầu');
   const [watching, setWatching] = useState(false);
-
-  function saveToken() {
-    localStorage.setItem('device_token', token);
-    setStatus('Đã lưu token');
-  }
+  const [token] = useState(() => {
+  const params = new URLSearchParams(window.location.search);
+    const urlToken = params.get('token');
+    if (urlToken) {
+      localStorage.setItem('device_token', urlToken);
+      return urlToken;
+    }
+    return localStorage.getItem('device_token') ?? '';
+  });
 
   useEffect(() => {
-    if (!watching) return;
+    if (!watching || !token) return;
 
     const id = navigator.geolocation.watchPosition(
       (p) => {
@@ -22,7 +25,7 @@ export default function DevicePage() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-device-token': localStorage.getItem('device_token') ?? '',
+            'x-device-token': token,
           },
           body: JSON.stringify({ lat, lng, accuracy }),
         })
@@ -34,35 +37,31 @@ export default function DevicePage() {
     );
 
     return () => navigator.geolocation.clearWatch(id);
-  }, [watching]);
+  }, [watching, token]);
+
+  if (!token) {
+    return (
+      <div style={{ padding: 24, textAlign: 'center' }}>
+        <p>Token không hợp lệ. Hãy quét lại QR từ dashboard.</p>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ padding: 24, maxWidth: 400, margin: '0 auto' }}>
+    <div style={{ padding: 24, maxWidth: 400, margin: '0 auto', textAlign: 'center' }}>
       <h2>Thiết bị tracker</h2>
-
-      <div style={{ marginBottom: 16 }}>
-        <input
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          placeholder="Dán device token vào đây"
-          style={{ width: '100%', padding: 8, marginBottom: 8 }}
-        />
-        <button onClick={saveToken} style={{ width: '100%', padding: 8 }}>
-          Lưu token
-        </button>
-      </div>
-
+      <p style={{ color: '#666', fontSize: 14 }}>Token đã được nạp sẵn ✓</p>
       <button
         onClick={() => setWatching((w) => !w)}
         style={{
-          width: '100%', padding: 12,
+          width: '100%', padding: 16, marginTop: 16,
           background: watching ? '#ef4444' : '#22c55e',
-          color: 'white', border: 'none', borderRadius: 8, fontSize: 16,
+          color: 'white', border: 'none', borderRadius: 8,
+          fontSize: 18, cursor: 'pointer',
         }}
       >
-        {watching ? 'Dừng theo dõi' : 'Bắt đầu theo dõi'}
+        {watching ? '⏹ Dừng theo dõi' : '▶ Bắt đầu theo dõi'}
       </button>
-
       <p style={{ marginTop: 16, color: '#666' }}>Trạng thái: {status}</p>
     </div>
   );

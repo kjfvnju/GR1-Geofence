@@ -249,18 +249,60 @@ app.post('/api/devices', auth, async (req: any, res: any) => {
 
 // Lấy danh sách thiết bị của một subject
 app.get('/api/devices/:subjectId', auth, async (req: any, res: any) => {
+  const { subjectId } = req.params;
   const own = await pool.query(
     'SELECT 1 FROM subjects WHERE id = $1 AND user_id = $2',
-    [req.params.subjectId, req.userId]
+    [subjectId, req.userId]
   );
   if (own.rowCount === 0)
     return res.status(403).json({ error: 'Không sở hữu subject này' });
 
   const { rows } = await pool.query(
-    `SELECT id, name, last_seen_at FROM devices WHERE subject_id = $1`,
-    [req.params.subjectId]
+    'SELECT id, name, device_token, last_seen_at FROM devices WHERE subject_id = $1 ORDER BY id',
+    [subjectId]
   );
   res.json(rows);
+});
+
+// Xóa một thiết bị (thu hồi token ngay lập tức)
+app.delete('/api/devices/:id', auth, async (req: any, res: any) => {
+  const { id } = req.params;
+  const own = await pool.query(
+    `SELECT d.id FROM devices d JOIN subjects s ON s.id = d.subject_id
+     WHERE d.id = $1 AND s.user_id = $2`,
+    [id, req.userId]
+  );
+  if (own.rowCount === 0)
+    return res.status(403).json({ error: 'Không sở hữu thiết bị' });
+  await pool.query('DELETE FROM devices WHERE id = $1', [id]);
+  res.json({ ok: true });
+});
+
+// Xóa một subject (cascade devices/geofences/positions/events theo schema)
+app.delete('/api/subjects/:id', auth, async (req: any, res: any) => {
+  const { id } = req.params;
+  const own = await pool.query(
+    'SELECT 1 FROM subjects WHERE id = $1 AND user_id = $2',
+    [id, req.userId]
+  );
+  if (own.rowCount === 0)
+    return res.status(403).json({ error: 'Không sở hữu subject' });
+  await pool.query('DELETE FROM subjects WHERE id = $1', [id]);
+  res.json({ ok: true });
+});
+
+// Xóa một vùng an toàn
+app.delete('/api/geofences/:id', auth, async (req: any, res: any) => {
+  const { id } = req.params;
+  const own = await pool.query(
+    `SELECT g.id FROM geofences g JOIN subjects s ON s.id = g.subject_id
+     WHERE g.id = $1 AND s.user_id = $2`,
+    [id, req.userId]
+  );
+  if (own.rowCount === 0)
+    return res.status(403).json({ error: 'Không sở hữu vùng này' });
+  await pool.query('DELETE FROM geofences WHERE id = $1', [id]);
+  res.json({ ok: true });
 });
 
 // Lấy danh sách vùng của một đối tượng (để frontend vẽ lên bản đồ)

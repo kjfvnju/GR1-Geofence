@@ -7,6 +7,7 @@ import L from 'leaflet';
 import Login from './Login';
 import { api, isLoggedIn, logout } from './api';
 import DevicePage from './pages/DevicePage';
+import { QRCodeSVG } from 'qrcode.react';
 
 // Sửa lỗi icon marker mặc định bị mất khi dùng Vite (đã làm từ Tuần 1)
 import icon from 'leaflet/dist/images/marker-icon.png';
@@ -36,6 +37,10 @@ function MapView({ onLogout }: { onLogout: () => void }) {
   const [eventLog, setEventLog] = useState<any[]>([]);
   const [posMap, setPosMap] = useState<Record<number, Pos>>({});
   const [trailMap, setTrailMap] = useState<Record<number, [number, number][]>>({});
+  const [qrUrl, setQrUrl] = useState<string | null>(null);
+  const [devices, setDevices] = useState<any[]>([]);
+  const [deviceId, setDeviceId] = useState<number | null>(null);
+  const [geofenceId, setGeofenceId] = useState<number | null>(null);
 
   const pos = subjectId ? posMap[subjectId] ?? null : null;
   const trail = subjectId ? trailMap[subjectId] ?? [] : [];
@@ -75,17 +80,29 @@ function MapView({ onLogout }: { onLogout: () => void }) {
 
   // EFFECT 2 — tải vùng mỗi khi đổi đối tượng
   useEffect(() => {
-    if (!subjectId) return;
+    if (!subjectId) {
+      // Không còn đối tượng nào đang chọn (vd: vừa xóa đối tượng cuối cùng)
+      // → xóa vùng đang vẽ trên bản đồ, tránh còn sót lại
+      setGeofences([]);
+      setGeofenceId(null);
+      return;
+    }
 
     let active = true;
 
     // Xóa dữ liệu cũ ngay khi đổi subject — tránh hiện nhầm
     setGeofences([]);
+    setGeofenceId(null);
 
     // Tải vùng
     api.get(`/api/geofences/${subjectId}`)
-      .then((data) => { if (active) setGeofences(Array.isArray(data) ? data : []); })
-      .catch((e) => { console.error('Lỗi tải vùng:', e); if (active) setGeofences([]); });
+      .then((data) => {
+        if (!active) return;
+        const list = Array.isArray(data) ? data : [];
+        setGeofences(list);
+        setGeofenceId(list.length > 0 ? list[0].id : null);
+      })
+      .catch((e) => { console.error('Lỗi tải vùng:', e); if (active) { setGeofences([]); setGeofenceId(null); } });
 
     // Tải lịch sử hành trình
     api.get(`/api/positions/${subjectId}`)
@@ -107,6 +124,24 @@ function MapView({ onLogout }: { onLogout: () => void }) {
         if (active) setTrailMap((prev) => ({ ...prev, [subjectId]: [] }));
       });
       
+    return () => { active = false; };
+  }, [subjectId]);
+
+  // EFFECT 3 — tải danh sách thiết bị mỗi khi đổi đối tượng
+  useEffect(() => {
+    if (!subjectId) { setDevices([]); setDeviceId(null); return; }
+    let active = true;
+    api.get(`/api/devices/${subjectId}`)
+      .then((data) => {
+        if (!active) return;
+        const list = Array.isArray(data) ? data : [];
+        setDevices(list);
+        setDeviceId(list.length > 0 ? list[0].id : null);
+      })
+      .catch((e) => {
+        console.error('Lỗi tải thiết bị:', e);
+        if (active) { setDevices([]); setDeviceId(null); }
+      });
     return () => { active = false; };
   }, [subjectId]);
 
@@ -136,6 +171,68 @@ function MapView({ onLogout }: { onLogout: () => void }) {
       alert('Không thêm được đối tượng. Thử lại.');
     }
   }
+  
+  async function handleCreateDevice() {
+    if (!subjectId) return alert('Chọn đối tượng trước');
+    const name = prompt('Tên thiết bị (vd: Điện thoại ông Nam):')?.trim();
+    if (!name) return;
+    try {
+      const data = await api.post('/api/devices', { subjectId, name });
+      setDevices((prev) => [...prev, data]);
+      setDeviceId(data.id);
+      setQrUrl(`${window.location.origin}/device?token=${data.device_token}`);
+    } catch {
+      alert('Lỗi tạo thiết bị');
+    }
+  }
+
+  function handleViewQR() {
+    const dev = devices.find((d) => d.id === deviceId);
+    if (!dev) return alert('Chưa có thiết bị nào');
+    setQrUrl(`${window.location.origin}/device?token=${dev.device_token}`);
+  }
+
+  async function handleDeleteDevice() {
+    if (!deviceId) return;
+    const dev = devices.find((d) => d.id === deviceId);
+    if (!confirm(`Xóa thiết bị "${dev?.name}"? Token mất hiệu lực ngay lập tức.`)) return;
+    try {
+      await api.delete(`/api/devices/${deviceId}`);
+      const remaining = devices.filter((d) => d.id !== deviceId);
+      setDevices(remaining);
+      setDeviceId(remaining.length > 0 ? remaining[0].id : null);
+    } catch {
+      alert('Lỗi xóa thiết bị');
+    }
+  }
+
+  async function handleDeleteSubject() {
+    if (!subjectId) return;
+    const subj = subjects.find((s) => s.id === subjectId);
+    if (!confirm(`Xóa đối tượng "${subj?.name}"? Toàn bộ vùng, vị trí, nhật ký, thiết bị sẽ mất theo.`)) return;
+    try {
+      await api.delete(`/api/subjects/${subjectId}`);
+      const remaining = subjects.filter((s) => s.id !== subjectId);
+      setSubjects(remaining);
+      setSubjectId(remaining.length > 0 ? remaining[0].id : null);
+    } catch {
+      alert('Lỗi xóa đối tượng');
+    }
+  }
+
+  async function handleDeleteGeofence() {
+    if (!geofenceId) return;
+    const g = geofences.find((x) => x.id === geofenceId);
+    if (!confirm(`Xóa vùng "${g?.name}"?`)) return;
+    try {
+      await api.delete(`/api/geofences/${geofenceId}`);
+      const remaining = geofences.filter((x) => x.id !== geofenceId);
+      setGeofences(remaining);
+      setGeofenceId(remaining.length > 0 ? remaining[0].id : null);
+    } catch {
+      alert('Lỗi xóa vùng');
+    }
+  }
 
   // ---- Khi vẽ xong một vùng bằng chuột (Bước 2.2) ----
   async function handleCreated(e: any) {
@@ -153,9 +250,10 @@ function MapView({ onLogout }: { onLogout: () => void }) {
     const name = prompt('Tên vùng an toàn:', 'Vùng mới') || 'Vùng mới';
 
     try {
-      await api.post('/api/geofences', { subjectId, name, points });
+      const created = await api.post('/api/geofences', { subjectId, name, points });
       e.target.removeLayer(layer);   // gỡ hình "nháp" của draw...
       await loadGeofences();          // ...rồi vẽ lại từ DB bằng <GeoJSON>, có id thật
+      setGeofenceId(created.id);      // tự chọn vùng vừa vẽ trong dropdown
     } catch (err: any) {
       alert('Lỗi lưu vùng: ' + err.message);
       e.target.removeLayer(layer);   // lưu hỏng cũng gỡ, không để bóng ma
@@ -175,7 +273,7 @@ function MapView({ onLogout }: { onLogout: () => void }) {
 
   return (
     <div style={{ position: 'relative', height: '100vh' }}>
-      <div style={{ position: 'absolute', bottom: 10, left: 10, zIndex: 1000, display: 'flex', gap: 8 }}>
+      <div style={{ position: 'absolute', bottom: 10, left: 10, zIndex: 1000, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <select
           value={subjectId ?? ''}
           onChange={(e) => setSubjectId(Number(e.target.value))}
@@ -196,10 +294,66 @@ function MapView({ onLogout }: { onLogout: () => void }) {
           Thêm đối tượng
         </button>
         <button
+          onClick={handleDeleteSubject}
+          disabled={!subjectId}
+          style={{ padding: '6px 12px', fontSize: 13, borderRadius: 4, border: '1px solid #d33', background: '#fff', color: '#d33', cursor: subjectId ? 'pointer' : 'not-allowed', opacity: subjectId ? 1 : 0.5 }}
+        >
+          Xóa đối tượng
+        </button>
+
+        <select
+          value={deviceId ?? ''}
+          onChange={(e) => setDeviceId(Number(e.target.value))}
+          style={{ padding: '6px 12px', fontSize: 13, borderRadius: 4, border: '1px solid #999' }}
+        >
+          {devices.length === 0 ? (
+            <option value="">Chưa có thiết bị</option>
+          ) : (
+            devices.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)
+          )}
+        </select>
+        <button onClick={handleCreateDevice} style={{ padding: '6px 12px', fontSize: 13, borderRadius: 4, border: '1px solid #999', background: '#fff', cursor: 'pointer' }}>
+          Thêm thiết bị
+        </button>
+        <button
+          onClick={handleViewQR}
+          disabled={!deviceId}
+          style={{ padding: '6px 12px', fontSize: 13, borderRadius: 4, border: '1px solid #999', background: '#fff', cursor: deviceId ? 'pointer' : 'not-allowed', opacity: deviceId ? 1 : 0.5 }}
+        >
+          Xem QR
+        </button>
+        <button
+          onClick={handleDeleteDevice}
+          disabled={!deviceId}
+          style={{ padding: '6px 12px', fontSize: 13, borderRadius: 4, border: '1px solid #d33', background: '#fff', color: '#d33', cursor: deviceId ? 'pointer' : 'not-allowed', opacity: deviceId ? 1 : 0.5 }}
+        >
+          Xóa thiết bị
+        </button>
+
+        <select
+          value={geofenceId ?? ''}
+          onChange={(e) => setGeofenceId(Number(e.target.value))}
+          style={{ padding: '6px 12px', fontSize: 13, borderRadius: 4, border: '1px solid #999' }}
+        >
+          {geofences.length === 0 ? (
+            <option value="">Chưa có vùng</option>
+          ) : (
+            geofences.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)
+          )}
+        </select>
+        <button
+          onClick={handleDeleteGeofence}
+          disabled={!geofenceId}
+          style={{ padding: '6px 12px', fontSize: 13, borderRadius: 4, border: '1px solid #d33', background: '#fff', color: '#d33', cursor: geofenceId ? 'pointer' : 'not-allowed', opacity: geofenceId ? 1 : 0.5 }}
+        >
+          Xóa vùng
+        </button>
+
+        <button
           onClick={handleOpenLog}
           style={{ padding: '6px 12px', fontSize: 13, borderRadius: 4, border: '1px solid #999', background: '#fff', cursor: 'pointer' }}
         >
-          📋 Nhật ký
+        Nhật ký
         </button>
       </div>
       <button
@@ -307,6 +461,47 @@ function MapView({ onLogout }: { onLogout: () => void }) {
         </div>
       )}
 
+      {qrUrl && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 2000,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: 8, padding: 24,
+            width: 320, display: 'flex', flexDirection: 'column', alignItems: 'center',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: 16 }}>
+              <strong style={{ fontSize: 16 }}>Quét để kích hoạt thiết bị</strong>
+              <button
+                onClick={() => setQrUrl(null)}
+                style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer' }}
+              >✕</button>
+            </div>
+
+            <QRCodeSVG value={qrUrl} size={200} />
+
+            <p style={{ fontSize: 12, color: '#666', textAlign: 'center', marginTop: 16, wordBreak: 'break-all' }}>
+              {qrUrl}
+            </p>
+
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(qrUrl);
+                alert('Đã copy link');
+              }}
+              style={{
+                marginTop: 8, padding: '6px 16px', fontSize: 13,
+                borderRadius: 4, border: '1px solid #999', background: '#fff', cursor: 'pointer',
+              }}
+            >
+              Copy link
+            </button>
+          </div>
+        </div>
+      )}
+
       <MapContainer center={[21.0285, 105.8542]} zoom={15} attributionControl={false} style={{ height: '100%' }}>
         <TileLayer
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -314,8 +509,16 @@ function MapView({ onLogout }: { onLogout: () => void }) {
         />
         <AttributionControl prefix={false} />
         {/* Vẽ các vùng đã lưu (Bước 2.5). key ép React vẽ lại khi danh sách đổi */}
+        {/* Vùng đang chọn trong dropdown "Xóa vùng" tô cam đậm để phân biệt với các vùng khác */}
         {geofences.map((g) => (
-          <GeoJSON key={g.id} data={g.geometry} style={{ color: '#d33', weight: 2 }} />
+          <GeoJSON
+            key={g.id}
+            data={g.geometry}
+            style={{ color: g.id === geofenceId ? '#f90' : '#d33', weight: g.id === geofenceId ? 4 : 2 }}
+            onEachFeature={(_feature, layer) => {
+              layer.bindTooltip(g.name, { permanent: true, direction: 'center', className: 'geofence-label' });
+            }}
+          />
         ))}
         {/* Vết hành trình — đường xanh nối các điểm đã đi */}
         {trail.length > 1 && (
