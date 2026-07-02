@@ -5,7 +5,7 @@ import jwt from 'jsonwebtoken';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { pool } from './db.js';
-import { checkGeofences } from './geofenceEngine.js';
+import { checkGeofences, distanceToNearestBoundary } from './geofenceEngine.js';
 import { auth, type AuthRequest } from './authMiddleware.js';
 import crypto from 'crypto';
 
@@ -94,12 +94,33 @@ app.post('/api/positions', async (req: any, res: any) => {
     // Kiểm tra geofence
     const events = await checkGeofences(subjectId, lat, lng, accuracy ?? null);
 
+    // Khoảng cách tới ranh giới gần nhất — tracker dùng để quyết định nhịp lấy mẫu (Bước 6.6)
+    const distanceToEdge = await distanceToNearestBoundary(subjectId, lat, lng);
+
     // Emit chỉ vào room của owner
     io.to(`user:${ownerUserId}`).emit('position:update', { subjectId, lat, lng, accuracy });
     for (const ev of events) {
       io.to(`user:${ownerUserId}`).emit('geofence:alert', { subjectId, ...ev });
     }
 
+    res.json({ ok: true, distanceToEdge });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// Xác nhận thiết bị còn sống, KHÔNG cần tọa độ — rẻ hơn nhiều so với /api/positions.
+// Dùng khi tracker đang gated (đứng yên), không có gì mới để gửi nhưng vẫn cần báo "còn hoạt động".
+app.post('/api/devices/heartbeat', async (req: any, res: any) => {
+  const token = req.headers['x-device-token'] as string;
+  if (!token) return res.status(401).json({ error: 'Thiếu device token' });
+
+  try {
+    const result = await pool.query(
+      'UPDATE devices SET last_seen_at = now() WHERE device_token = $1 RETURNING id',
+      [token]
+    );
+    if (result.rowCount === 0) return res.status(401).json({ error: 'Thiết bị không hợp lệ' });
     res.json({ ok: true });
   } catch (e: any) {
     res.status(500).json({ ok: false, error: e.message });

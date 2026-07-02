@@ -88,10 +88,19 @@ function MapView({ onLogout }: { onLogout: () => void }) {
     };
   }, []);
 
-  // EFFECT tick — cập nhật "now" mỗi 30s để phát hiện offline theo thời gian thực
+  // EFFECT tick — cập nhật "now" mỗi 30s để phát hiện offline theo thời gian thực.
+  // Trình duyệt throttle mạnh setInterval khi tab ở nền (có thể vài phút mới chạy 1 lần) — nên
+  // phải tính lại NGAY khi tab quay lại foreground, không đợi tick định kỳ tiếp theo.
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 30000);
-    return () => clearInterval(t);
+    function handleVisibility() {
+      if (document.visibilityState === 'visible') setNow(Date.now());
+    }
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, []);
 
   // EFFECT 2 — tải vùng mỗi khi đổi đối tượng

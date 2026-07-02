@@ -76,3 +76,25 @@ export async function checkGeofences(
 
   return events;
 }
+
+// Khoảng cách (mét) từ điểm hiện tại tới viền của geofence active GẦN NHẤT của subject.
+// Trả về null nếu subject chưa có geofence active nào (không có gì để tính "gần" so với).
+// Đo tới ST_Boundary (viền), không phải toàn bộ polygon: ST_Distance tới polygon trả về 0
+// khi điểm nằm bên trong, không phân biệt được "sát viền từ bên trong" với "ở giữa vùng".
+export async function distanceToNearestBoundary(
+  subjectId: number, lat: number, lng: number
+): Promise<number | null> {
+  const { rows } = await pool.query(
+    `SELECT MIN(
+       ST_Distance(
+         ST_Boundary(geom)::geography,
+         ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography
+       )
+     ) AS min_dist
+     FROM geofences
+     WHERE subject_id = $1 AND active = TRUE`,
+    [subjectId, lng, lat]
+  );
+  const val = rows[0]?.min_dist;
+  return val === null || val === undefined ? null : Number(val);
+}
