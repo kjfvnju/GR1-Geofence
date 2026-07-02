@@ -7,6 +7,7 @@ import { Server } from 'socket.io';
 import { pool } from './db.js';
 import { checkGeofences } from './geofenceEngine.js';
 import { auth, type AuthRequest } from './authMiddleware.js';
+import crypto from 'crypto';
 
 const app = express();        // tạo ứng dụng web
 app.use(cors());              // cho phép frontend (cổng khác) gọi vào
@@ -53,45 +54,53 @@ app.post('/api/subjects', auth, async (req: AuthRequest, res) => {
   res.json(rows[0]);
 });
 
-// API nhận vị trí mới. async vì bên trong có await gọi database.
-app.post('/api/positions', async (req, res) => {
-  const { subjectId, lat, lng, accuracy } = req.body;
+app.post('/api/positions', async (req: any, res: any) => {
+  const { lat, lng, accuracy } = req.body;
+  const token = req.headers['x-device-token'] as string;
+
+  if (!token) return res.status(401).json({ error: 'Thiếu device token' });
+
   try {
-    // 1. Lưu điểm vào DB
-    const result = await pool.query(
-      `INSERT INTO positions (subject_id, geom, accuracy)
-       VALUES ($1, ST_SetSRID(ST_MakePoint($2, $3), 4326), $4)
-       RETURNING id`,
-      [subjectId, lng, lat, accuracy ?? null]
+    // Tra token → lấy device_id và subject_id
+    const dev = await pool.query(
+      'SELECT id, subject_id FROM devices WHERE device_token = $1',
+      [token]
+    );
+    if (dev.rowCount === 0)
+      return res.status(401).json({ error: 'Token không hợp lệ' });
+
+    const { id: deviceId, subject_id: subjectId } = dev.rows[0];
+
+    // Cập nhật last_seen_at
+    await pool.query(
+      'UPDATE devices SET last_seen_at = now() WHERE id = $1',
+      [deviceId]
     );
 
-    // 2. Kiểm tra geofence
-    const events = await checkGeofences(subjectId, lat, lng, accuracy ?? null);
+    // Lưu vị trí (thêm device_id)
+    await pool.query(
+      `INSERT INTO positions (device_id, subject_id, geom, accuracy)
+       VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5)`,
+      [deviceId, subjectId, lng, lat, accuracy ?? null]
+    );
 
-    // 3. Tra user_id của chủ subject — để emit đúng phòng
-    //    Nếu subjectId không tồn tại thì ownerRow.rows rỗng → dùng optional chaining
-    const ownerRow = await pool.query(
+    // Lấy userId của owner để emit đúng room
+    const owner = await pool.query(
       'SELECT user_id FROM subjects WHERE id = $1',
       [subjectId]
     );
-    const ownerUserId: number | undefined = ownerRow.rows[0]?.user_id;
+    const ownerUserId = owner.rows[0].user_id;
 
-    // 4. Emit vị trí — chỉ vào phòng của chủ subject
-    if (ownerUserId !== undefined) {
-      io.to(`user:${ownerUserId}`).emit('position:update', {
-        subjectId, lat, lng, accuracy,
-      });
+    // Kiểm tra geofence
+    const events = await checkGeofences(subjectId, lat, lng, accuracy ?? null);
 
-      for (const ev of events) {
-        io.to(`user:${ownerUserId}`).emit('geofence:alert', {
-          subjectId,
-          ...ev,
-          at: new Date().toISOString(),
-        });
-      }
+    // Emit chỉ vào room của owner
+    io.to(`user:${ownerUserId}`).emit('position:update', { subjectId, lat, lng, accuracy });
+    for (const ev of events) {
+      io.to(`user:${ownerUserId}`).emit('geofence:alert', { subjectId, ...ev });
     }
 
-    res.json({ ok: true, id: result.rows[0].id });
+    res.json({ ok: true });
   } catch (e: any) {
     res.status(500).json({ ok: false, error: e.message });
   }
@@ -215,6 +224,43 @@ app.post('/api/geofences', auth, async (req: AuthRequest, res) => {
   } catch (e: any) {
     res.status(500).json({ ok: false, error: e.message });
   }
+});
+
+// Caregiver tạo thiết bị cho subject của mình
+app.post('/api/devices', auth, async (req: any, res: any) => {
+  const { subjectId, name } = req.body;
+
+  // Kiểm tra subject thuộc về người đang gọi
+  const own = await pool.query(
+    'SELECT 1 FROM subjects WHERE id = $1 AND user_id = $2',
+    [subjectId, req.userId]
+  );
+  if (own.rowCount === 0)
+    return res.status(403).json({ error: 'Không sở hữu subject này' });
+
+  const token = crypto.randomBytes(24).toString('hex');
+  const { rows } = await pool.query(
+    `INSERT INTO devices (subject_id, device_token, name)
+     VALUES ($1, $2, $3) RETURNING id, device_token, name`,
+    [subjectId, token, name]
+  );
+  res.json(rows[0]);
+});
+
+// Lấy danh sách thiết bị của một subject
+app.get('/api/devices/:subjectId', auth, async (req: any, res: any) => {
+  const own = await pool.query(
+    'SELECT 1 FROM subjects WHERE id = $1 AND user_id = $2',
+    [req.params.subjectId, req.userId]
+  );
+  if (own.rowCount === 0)
+    return res.status(403).json({ error: 'Không sở hữu subject này' });
+
+  const { rows } = await pool.query(
+    `SELECT id, name, last_seen_at FROM devices WHERE subject_id = $1`,
+    [req.params.subjectId]
+  );
+  res.json(rows);
 });
 
 // Lấy danh sách vùng của một đối tượng (để frontend vẽ lên bản đồ)

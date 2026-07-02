@@ -6,6 +6,7 @@ import { io } from 'socket.io-client';
 import L from 'leaflet';
 import Login from './Login';
 import { api, isLoggedIn, logout } from './api';
+import DevicePage from './pages/DevicePage';
 
 // Sửa lỗi icon marker mặc định bị mất khi dùng Vite (đã làm từ Tuần 1)
 import icon from 'leaflet/dist/images/marker-icon.png';
@@ -346,8 +347,12 @@ function MapView({ onLogout }: { onLogout: () => void }) {
 }
 
 export default function App() {
-  // Khởi tạo state từ sessionStorage: F5 mà còn vé thì vào thẳng bản đồ
   const [loggedIn, setLoggedIn] = useState(isLoggedIn());
+
+  // Nếu đang ở trang /device → render riêng, không cần đăng nhập
+  if (window.location.pathname === '/device') {
+    return <DevicePage />;
+  }
 
   if (!loggedIn) {
     return <Login onDone={() => setLoggedIn(true)} />;
