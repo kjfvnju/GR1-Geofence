@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AttributionControl, MapContainer, TileLayer, Marker, Popup, GeoJSON, FeatureGroup, Polyline } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, GeoJSON, FeatureGroup, Polyline } from 'react-leaflet';
 import 'leaflet-draw';
 import { EditControl } from 'react-leaflet-draw';
 import { io } from 'socket.io-client';
@@ -296,304 +296,214 @@ function MapView({ onLogout }: { onLogout: () => void }) {
     }
   }
 
+  const offlineDevice = deviceId ? devices.find((d) => d.id === deviceId) : null;
+  const showOfflineBanner = !!offlineDevice && isDeviceOffline(offlineDevice.last_seen_at);
+  const offlineMinsAgo = showOfflineBanner && offlineDevice.last_seen_at
+    ? Math.floor((now - new Date(offlineDevice.last_seen_at).getTime()) / 60000)
+    : null;
+
   return (
-    <div style={{ position: 'relative', height: '100vh' }}>
-      <div style={{ position: 'absolute', bottom: 10, left: 10, zIndex: 1000, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <select
-          value={subjectId ?? ''}
-          onChange={(e) => setSubjectId(Number(e.target.value))}
-          style={{ padding: '6px 12px', fontSize: 13, borderRadius: 4, border: '1px solid #999' }}
-        >
-          {subjects.length === 0 ? (
-            <option value="">Chưa có đối tượng</option>
-          ) : (
-            subjects.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))
-          )}
-        </select>
-        <button
-          onClick={handleAddSubject}
-          style={{ padding: '6px 12px', fontSize: 13, borderRadius: 4, border: '1px solid #999', background: '#fff', cursor: 'pointer' }}
-        >
-          Thêm đối tượng
-        </button>
-        <button
-          onClick={handleDeleteSubject}
-          disabled={!subjectId}
-          style={{ padding: '6px 12px', fontSize: 13, borderRadius: 4, border: '1px solid #d33', background: '#fff', color: '#d33', cursor: subjectId ? 'pointer' : 'not-allowed', opacity: subjectId ? 1 : 0.5 }}
-        >
-          Xóa đối tượng
-        </button>
+    <div className="app-shell">
+      <header className="topbar">
+        <span className="topbar__title">GR1 Geofence</span>
+        <button onClick={onLogout} className="btn btn--logout">Đăng xuất</button>
+      </header>
 
-        <select
-          value={deviceId ?? ''}
-          onChange={(e) => setDeviceId(Number(e.target.value))}
-          style={{ padding: '6px 12px', fontSize: 13, borderRadius: 4, border: '1px solid #999' }}
-        >
-          {devices.length === 0 ? (
-            <option value="">Chưa có thiết bị</option>
-          ) : (
-            devices.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}{isDeviceOffline(d.last_seen_at) ? ' 🔴 mất tín hiệu' : ' 🟢'}
-              </option>
-            ))
+      <div className="map-area">
+        {/* Banner trạng thái — luôn ở góc trên-phải, xếp cột, không đụng control Leaflet (trên-trái) */}
+        <div className="status-stack">
+          {showOfflineBanner && (
+            <div className="banner banner--offline">
+              ⚠ Mất tín hiệu thiết bị "{offlineDevice.name}"
+              {offlineMinsAgo !== null ? ` — ${offlineMinsAgo} phút trước` : ' — chưa từng gửi vị trí'}
+            </div>
           )}
-        </select>
-        <button onClick={handleCreateDevice} style={{ padding: '6px 12px', fontSize: 13, borderRadius: 4, border: '1px solid #999', background: '#fff', cursor: 'pointer' }}>
-          Thêm thiết bị
-        </button>
-        <button
-          onClick={handleViewQR}
-          disabled={!deviceId}
-          style={{ padding: '6px 12px', fontSize: 13, borderRadius: 4, border: '1px solid #999', background: '#fff', cursor: deviceId ? 'pointer' : 'not-allowed', opacity: deviceId ? 1 : 0.5 }}
-        >
-          Xem QR
-        </button>
-        <button
-          onClick={handleDeleteDevice}
-          disabled={!deviceId}
-          style={{ padding: '6px 12px', fontSize: 13, borderRadius: 4, border: '1px solid #d33', background: '#fff', color: '#d33', cursor: deviceId ? 'pointer' : 'not-allowed', opacity: deviceId ? 1 : 0.5 }}
-        >
-          Xóa thiết bị
-        </button>
 
-        <select
-          value={geofenceId ?? ''}
-          onChange={(e) => setGeofenceId(Number(e.target.value))}
-          style={{ padding: '6px 12px', fontSize: 13, borderRadius: 4, border: '1px solid #999' }}
-        >
-          {geofences.length === 0 ? (
-            <option value="">Chưa có vùng</option>
-          ) : (
-            geofences.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)
+          {alerts.length > 0 && (
+            <div className="banner banner--breach">
+              <div className="banner__head">
+                <strong className="banner__title--breach">🚨 Cảnh báo ({alerts.length})</strong>
+                <button onClick={() => setAlerts([])} className="btn btn--danger" style={{ minHeight: 28, padding: '2px 10px' }}>
+                  Xóa hết
+                </button>
+              </div>
+              {alerts.map((a, i) => (
+                <div key={i} className="event-row">
+                  <span className={`pill ${a.type === 'EXIT' ? 'pill--exit' : 'pill--enter'}`}>{a.type}</span>
+                  {' '}{a.geofenceName}
+                  <br />
+                  <time>{new Date(a.at).toLocaleTimeString('vi-VN')}</time>
+                  {a.confidence !== null && a.confidence < 0.5 && (
+                    <div className="low-confidence">⚠ Độ tin cậy thấp (GPS nhiễu)</div>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
-        </select>
-        <button
-          onClick={handleDeleteGeofence}
-          disabled={!geofenceId}
-          style={{ padding: '6px 12px', fontSize: 13, borderRadius: 4, border: '1px solid #d33', background: '#fff', color: '#d33', cursor: geofenceId ? 'pointer' : 'not-allowed', opacity: geofenceId ? 1 : 0.5 }}
-        >
-          Xóa vùng
-        </button>
+        </div>
 
-        <button
-          onClick={handleOpenLog}
-          style={{ padding: '6px 12px', fontSize: 13, borderRadius: 4, border: '1px solid #999', background: '#fff', cursor: 'pointer' }}
-        >
-        Nhật ký
-        </button>
-      </div>
-      <button
-        onClick={onLogout}
-        style={{
-          position: 'absolute', bottom: 22, right: 2, zIndex: 1000,
-          padding: '6px 12px', background: '#fff',
-          border: '1px solid #999', borderRadius: 4, cursor: 'pointer',
-        }}
-      >
-        Đăng xuất
-      </button>
-      {/* Banner cảnh báo vàng — thiết bị đang chọn mất tín hiệu quá 10 phút */}
-      {deviceId && (() => {
-        const dev = devices.find((d) => d.id === deviceId);
-        if (!dev || !isDeviceOffline(dev.last_seen_at)) return null;
-        const minsAgo = dev.last_seen_at
-          ? Math.floor((now - new Date(dev.last_seen_at).getTime()) / 60000)
-          : null;
-        return (
-          <div style={{
-            position: 'absolute', top: 10, left: 10, zIndex: 1000,
-            background: '#fff3cd', border: '2px solid #e0a800', borderRadius: 8,
-            padding: '8px 14px', fontSize: 13, color: '#856404',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-          }}>
-            ⚠ Mất tín hiệu thiết bị "{dev.name}"
-            {minsAgo !== null ? ` — ${minsAgo} phút trước` : ' — chưa từng gửi vị trí'}
+        {/* Panel điều khiển — gom theo nhóm, tự xuống dòng có kiểm soát, không tràn ra ngoài */}
+        <div className="control-panel">
+          <div className="control-group">
+            <label className="control-group__label" htmlFor="subject-select">Đối tượng</label>
+            <div className="control-group__row">
+              <select id="subject-select" value={subjectId ?? ''} onChange={(e) => setSubjectId(Number(e.target.value))}>
+                {subjects.length === 0 ? (
+                  <option value="">Chưa có đối tượng</option>
+                ) : (
+                  subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)
+                )}
+              </select>
+              <button onClick={handleAddSubject} className="btn">Thêm</button>
+              <button onClick={handleDeleteSubject} disabled={!subjectId} className="btn btn--danger">Xóa</button>
+            </div>
           </div>
-        );
-      })()}
 
-      {/* Banner cảnh báo đỏ — chỉ hiện khi có cảnh báo */}
-      {alerts.length > 0 && (
-        <div style={{
-          position: 'absolute', top: 10, right: 10, zIndex: 1000, 
-          width: 300, maxHeight: '40vh', overflowY: 'auto',
-          background: '#fff', border: '2px solid #d33', borderRadius: 8,
-          padding: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
-        }}>
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-          }}>
-            <strong style={{ color: '#d33' }}>🚨 Cảnh báo ({alerts.length})</strong>
-            <button
-              onClick={() => setAlerts([])}
-              style={{
-                background: '#fff',
-                color: '#d33',
-                border: '1px solid #d33',
-                borderRadius: 4,
-                padding: '2px 8px',
-                fontSize: 12,
-                cursor: 'pointer',
-              }}
-            >
-              Xóa hết
-            </button>
+          <div className="control-group">
+            <label className="control-group__label" htmlFor="device-select">Thiết bị</label>
+            <div className="control-group__row">
+              <select id="device-select" value={deviceId ?? ''} onChange={(e) => setDeviceId(Number(e.target.value))}>
+                {devices.length === 0 ? (
+                  <option value="">Chưa có thiết bị</option>
+                ) : (
+                  devices.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}{isDeviceOffline(d.last_seen_at) ? ' · mất tín hiệu' : ' · còn hoạt động'}
+                    </option>
+                  ))
+                )}
+              </select>
+              <button onClick={handleCreateDevice} className="btn">Thêm</button>
+              <button onClick={handleViewQR} disabled={!deviceId} className="btn">Xem QR</button>
+              <button onClick={handleDeleteDevice} disabled={!deviceId} className="btn btn--danger">Xóa</button>
+            </div>
           </div>
-          {alerts.map((a, i) => (
-            <div key={i} style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #eee' }}>
-              <b>{a.type}</b> — {a.geofenceName}<br />
-              <small>{new Date(a.at).toLocaleTimeString()}</small>
-              {/* Thêm dòng này */}
-              {a.confidence !== null && a.confidence < 0.5 && (
-                <div style={{ color: '#e67e00', fontSize: 12, marginTop: 2 }}>
-                  ⚠ Độ tin cậy thấp (GPS nhiễu)
+
+          <div className="control-group">
+            <label className="control-group__label" htmlFor="geofence-select">Vùng an toàn</label>
+            <div className="control-group__row">
+              <select id="geofence-select" value={geofenceId ?? ''} onChange={(e) => setGeofenceId(Number(e.target.value))}>
+                {geofences.length === 0 ? (
+                  <option value="">Chưa có vùng</option>
+                ) : (
+                  geofences.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)
+                )}
+              </select>
+              <button onClick={handleDeleteGeofence} disabled={!geofenceId} className="btn btn--danger">Xóa</button>
+            </div>
+          </div>
+
+          <div className="control-group" style={{ minWidth: 100, flex: '0 1 auto' }}>
+            <label className="control-group__label">Nhật ký</label>
+            <div className="control-group__row">
+              <button onClick={handleOpenLog} className="btn">Xem nhật ký</button>
+            </div>
+          </div>
+        </div>
+
+        {showLog && (
+          <div className="modal-overlay" onClick={() => setShowLog(false)}>
+            <div className="modal-card" style={{ maxWidth: 480, maxHeight: '70vh', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
+              <div className="modal-card__head">
+                <strong>📋 Nhật ký cảnh báo</strong>
+                <button onClick={() => setShowLog(false)} className="icon-btn" aria-label="Đóng">✕</button>
+              </div>
+
+              {eventLog.length === 0 ? (
+                <p className="empty-state">Chưa có sự kiện nào — cảnh báo ENTER/EXIT sẽ hiện ở đây khi phát sinh.</p>
+              ) : (
+                <div style={{ overflowY: 'auto' }}>
+                  {eventLog.map((e) => (
+                    <div key={e.id} className="event-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div>
+                        <span className={`pill ${e.type === 'EXIT' ? 'pill--exit' : 'pill--enter'}`} style={{ marginRight: 8 }}>
+                          {e.type}
+                        </span>
+                        <span>{e.geofence_name ?? 'Vùng đã xóa'}</span>
+                        {e.confidence !== null && e.confidence < 0.5 && (
+                          <div className="low-confidence">⚠ Độ tin cậy thấp</div>
+                        )}
+                      </div>
+                      <time style={{ whiteSpace: 'nowrap', marginLeft: 12 }}>
+                        {new Date(e.occurred_at).toLocaleString('vi-VN')}
+                      </time>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
-          ))}
-        </div>
-      )}
+          </div>
+        )}
 
-      {showLog && (
-        <div style={{
-          position: 'absolute', inset: 0, zIndex: 2000,
-          background: 'rgba(0,0,0,0.5)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          <div style={{
-            background: '#fff', borderRadius: 8, padding: 20,
-            width: 480, maxHeight: '70vh', display: 'flex', flexDirection: 'column',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <strong style={{ fontSize: 16 }}>📋 Nhật ký cảnh báo</strong>
-              <button
-                onClick={() => setShowLog(false)}
-                style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer' }}
-              >✕</button>
-            </div>
-
-            {eventLog.length === 0 ? (
-              <p style={{ color: '#999', textAlign: 'center', marginTop: 20 }}>Chưa có sự kiện nào</p>
-            ) : (
-              <div style={{ overflowY: 'auto' }}>
-                {eventLog.map((e) => (
-                  <div key={e.id} style={{
-                    padding: '10px 0', borderBottom: '1px solid #eee',
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-                  }}>
-                    <div>
-                      <span style={{
-                        background: e.type === 'EXIT' ? '#d33' : '#2a9d2a',
-                        color: '#fff', borderRadius: 4, padding: '2px 8px', fontSize: 12, marginRight: 8,
-                      }}>
-                        {e.type}
-                      </span>
-                      <span>{e.geofence_name ?? 'Vùng đã xóa'}</span>
-                      {e.confidence !== null && e.confidence < 0.5 && (
-                        <span style={{ color: '#e67e00', fontSize: 12, marginLeft: 8 }}>⚠ Tin cậy thấp</span>
-                      )}
-                    </div>
-                    <small style={{ color: '#999', whiteSpace: 'nowrap', marginLeft: 12 }}>
-                      {new Date(e.occurred_at).toLocaleString('vi-VN')}
-                    </small>
-                  </div>
-                ))}
+        {qrUrl && (
+          <div className="modal-overlay" onClick={() => setQrUrl(null)}>
+            <div className="modal-card" style={{ maxWidth: 320, display: 'flex', flexDirection: 'column', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+              <div className="modal-card__head" style={{ width: '100%' }}>
+                <strong>Quét để kích hoạt thiết bị</strong>
+                <button onClick={() => setQrUrl(null)} className="icon-btn" aria-label="Đóng">✕</button>
               </div>
-            )}
-          </div>
-        </div>
-      )}
 
-      {qrUrl && (
-        <div style={{
-          position: 'absolute', inset: 0, zIndex: 2000,
-          background: 'rgba(0,0,0,0.5)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          <div style={{
-            background: '#fff', borderRadius: 8, padding: 24,
-            width: 320, display: 'flex', flexDirection: 'column', alignItems: 'center',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: 16 }}>
-              <strong style={{ fontSize: 16 }}>Quét để kích hoạt thiết bị</strong>
+              <div style={{ background: '#fff', padding: 12, borderRadius: 8 }}>
+                <QRCodeSVG value={qrUrl} size={200} />
+              </div>
+
+              <p className="mono" style={{ textAlign: 'center', marginTop: 16, wordBreak: 'break-all', fontSize: 11 }}>
+                {qrUrl}
+              </p>
+
               <button
-                onClick={() => setQrUrl(null)}
-                style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer' }}
-              >✕</button>
+                onClick={() => { navigator.clipboard.writeText(qrUrl); alert('Đã copy link'); }}
+                className="btn"
+                style={{ marginTop: 8 }}
+              >
+                Copy link
+              </button>
             </div>
-
-            <QRCodeSVG value={qrUrl} size={200} />
-
-            <p style={{ fontSize: 12, color: '#666', textAlign: 'center', marginTop: 16, wordBreak: 'break-all' }}>
-              {qrUrl}
-            </p>
-
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(qrUrl);
-                alert('Đã copy link');
-              }}
-              style={{
-                marginTop: 8, padding: '6px 16px', fontSize: 13,
-                borderRadius: 4, border: '1px solid #999', background: '#fff', cursor: 'pointer',
-              }}
-            >
-              Copy link
-            </button>
           </div>
-        </div>
-      )}
-
-      <MapContainer center={[21.0285, 105.8542]} zoom={15} attributionControl={false} style={{ height: '100%' }}>
-        <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution="&copy; OpenStreetMap"
-        />
-        <AttributionControl prefix={false} />
-        {/* Vẽ các vùng đã lưu (Bước 2.5). key ép React vẽ lại khi danh sách đổi */}
-        {/* Vùng đang chọn trong dropdown "Xóa vùng" tô cam đậm để phân biệt với các vùng khác */}
-        {geofences.map((g) => (
-          <GeoJSON
-            key={g.id}
-            data={g.geometry}
-            style={{ color: g.id === geofenceId ? '#f90' : '#d33', weight: g.id === geofenceId ? 4 : 2 }}
-            onEachFeature={(_feature, layer) => {
-              layer.bindTooltip(g.name, { permanent: true, direction: 'center', className: 'geofence-label' });
-            }}
-          />
-        ))}
-        {/* Vết hành trình — đường xanh nối các điểm đã đi */}
-        {trail.length > 1 && (
-          <Polyline positions={trail} color="blue" weight={2} opacity={0.6} />
         )}
 
-        {/* Công cụ vẽ vùng bằng chuột (Bước 2.2) */}
-        <FeatureGroup>
-          {subjectId && (
-            <EditControl
-              position="topleft"
-              onCreated={handleCreated}
-              draw={{ polygon: true, rectangle: false, circle: false,
-                      marker: false, polyline: false, circlemarker: false }}
-              edit={{ edit: false, remove: false }}
+        <MapContainer center={[21.0285, 105.8542]} zoom={15} attributionControl={false} style={{ height: '100%' }}>
+          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+          {/* Vẽ các vùng đã lưu. Vùng đang chọn trong dropdown "Xóa vùng" tô amber đậm để phân biệt */}
+          {geofences.map((g) => (
+            <GeoJSON
+              key={g.id}
+              data={g.geometry}
+              style={{
+                color: g.id === geofenceId ? 'var(--signal)' : 'var(--breach)',
+                weight: g.id === geofenceId ? 4 : 2,
+              }}
+              onEachFeature={(_feature, layer) => {
+                layer.bindTooltip(g.name, { permanent: true, direction: 'center', className: 'geofence-label' });
+              }}
             />
+          ))}
+          {/* Vết hành trình */}
+          {trail.length > 1 && (
+            <Polyline positions={trail} color="var(--signal)" weight={2} opacity={0.7} />
           )}
-        </FeatureGroup>
 
-        {/* Marker vị trí hiện tại */}
-        {pos && (
-          <Marker position={[pos.lat, pos.lng]}>
-            <Popup>Vị trí hiện tại<br />Sai số: {pos.accuracy != null ? Math.round(pos.accuracy) : '?'}m</Popup>
-          </Marker>
-        )}
-      </MapContainer>
+          {/* Công cụ vẽ vùng — Leaflet tự quản lý góc trên-trái, KHÔNG đặt UI riêng vào góc này */}
+          <FeatureGroup>
+            {subjectId && (
+              <EditControl
+                position="topleft"
+                onCreated={handleCreated}
+                draw={{ polygon: true, rectangle: false, circle: false,
+                        marker: false, polyline: false, circlemarker: false }}
+                edit={{ edit: false, remove: false }}
+              />
+            )}
+          </FeatureGroup>
+
+          {/* Marker vị trí hiện tại */}
+          {pos && (
+            <Marker position={[pos.lat, pos.lng]}>
+              <Popup>Vị trí hiện tại<br />Sai số: {pos.accuracy != null ? Math.round(pos.accuracy) : '?'}m</Popup>
+            </Marker>
+          )}
+        </MapContainer>
+      </div>
     </div>
   );
 }

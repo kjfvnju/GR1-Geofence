@@ -176,34 +176,41 @@ export default function DevicePage() {
 
   if (!token) {
     return (
-      <div style={{ padding: 24, textAlign: 'center' }}>
-        <p>Token không hợp lệ. Hãy quét lại QR từ dashboard.</p>
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--base)', padding: 24 }}>
+        <p style={{ color: 'var(--text)', textAlign: 'center' }}>Token không hợp lệ. Hãy quét lại QR từ dashboard.</p>
       </div>
     );
   }
 
   return (
-    <div style={{ padding: 24, maxWidth: 400, margin: '0 auto', textAlign: 'center' }}>
-      <h2>Thiết bị tracker</h2>
-      <p style={{ color: '#666', fontSize: 14 }}>Token đã được nạp sẵn ✓</p>
-      <button
-        onClick={handleToggleWatching}
-        style={{
-          width: '100%', padding: 16, marginTop: 16,
-          background: watching ? '#ef4444' : '#22c55e',
-          color: 'white', border: 'none', borderRadius: 8,
-          fontSize: 18, cursor: 'pointer',
-        }}
-      >
-        {watching ? '⏹ Dừng theo dõi' : '▶ Bắt đầu theo dõi'}
-      </button>
-      <p style={{ marginTop: 16, color: '#666' }}>Trạng thái: {status}</p>
-      {watching && (
-        <p style={{ marginTop: 8, color: '#666', fontSize: 13 }}>
-          Nhịp gửi: {stationary ? 'heartbeat, đứng yên (4 phút)' : dense ? 'dày (5s)' : 'thưa (30s)'}
-          {distanceToEdge !== null ? ` — cách viền ~${Math.round(distanceToEdge)}m` : ''}
-        </p>
-      )}
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--base)', padding: 24 }}>
+      <div style={{
+        width: '100%', maxWidth: 400,
+        background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 10,
+        padding: 24, textAlign: 'center',
+      }}>
+        <h2>Thiết bị tracker</h2>
+        <p style={{ color: 'var(--muted)', fontSize: 14, marginTop: 4 }}>Token đã được nạp sẵn ✓</p>
+        <button
+          onClick={handleToggleWatching}
+          className="btn"
+          style={{
+            width: '100%', minHeight: 52, marginTop: 16,
+            background: watching ? 'var(--breach)' : 'var(--inside)',
+            color: '#0e1620', border: 'none', borderRadius: 8,
+            fontSize: 16, fontWeight: 600,
+          }}
+        >
+          {watching ? '⏹ Dừng theo dõi' : '▶ Bắt đầu theo dõi'}
+        </button>
+        <p style={{ marginTop: 16, color: 'var(--muted)' }}>Trạng thái: {status}</p>
+        {watching && (
+          <p className="mono" style={{ marginTop: 8, fontSize: 12 }}>
+            Nhịp gửi: {stationary ? 'heartbeat, đứng yên (4 phút)' : dense ? 'dày (5s)' : 'thưa (30s)'}
+            {distanceToEdge !== null ? ` — cách viền ~${Math.round(distanceToEdge)}m` : ''}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

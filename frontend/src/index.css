@@ -1,119 +1,329 @@
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+  /* Design tokens — xem CLAUDE.md. Không đổi tùy tiện, đây là bảng màu đã chốt. */
+  --base: #0e1620;      /* nền bản đồ đêm */
+  --surface: #16212e;   /* panel / card nổi trên bản đồ */
+  --surface-2: #1c2a39; /* lớp panel thứ hai (input, hover) */
+  --line: #24313f;      /* đường phân cách mảnh, viền panel */
+  --text: #d8e0e8;      /* chữ chính */
+  --muted: #7c8a99;     /* nhãn phụ, đơn vị */
+  --signal: #f2a93b;    /* đang có kết nối/vị trí mới (accent, amber) */
+  --inside: #4fb286;    /* đối tượng đang TRONG vùng an toàn */
+  --dense: #f2a93b;     /* đang lấy mẫu dày (gần ranh giới) — cùng tông amber */
+  --breach: #e5484d;    /* EXIT khỏi vùng an toàn — đỏ vermilion */
+  --offline: #7c8a99;   /* thiết bị mất tín hiệu — xám muted, KHÔNG dùng đỏ */
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+  --sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
+  font: 400 15px/1.5 var(--sans);
+  color-scheme: dark;
   color: var(--text);
-  background: var(--bg);
+  background: var(--base);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
 
-  @media (max-width: 1024px) {
-    font-size: 16px;
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
-
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
-}
-
-#root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
+* {
   box-sizing: border-box;
 }
 
-body {
+html, body, #root {
   margin: 0;
+  height: 100%;
 }
 
-h1,
 h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
+  font-family: var(--sans);
+  font-weight: 600;
+  color: var(--text);
+  font-size: 20px;
+  margin: 0 0 4px;
 }
 
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
-}
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
-}
 p {
   margin: 0;
 }
 
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
+button, input, select {
+  font-family: var(--sans);
 }
 
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+a {
+  color: var(--signal);
 }
+
+:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+/* ====== App shell ====== */
+
+.app-shell {
+  position: relative;
+  height: 100vh;
+  background: var(--base);
+  color: var(--text);
+}
+
+/* ====== Thanh trên cùng: tên ứng dụng + đăng xuất — KHÔNG đè lên bản đồ ====== */
+
+.topbar {
+  position: relative;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 52px;
+  padding: 0 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.topbar__title {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.map-area {
+  position: relative;
+  height: calc(100% - 52px);
+}
+
+/* ====== Banner trạng thái — luôn xếp cột ở góc TRÊN-PHẢI, không đụng control Leaflet (trên-trái) ====== */
+
+.status-stack {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(320px, calc(100vw - 24px));
+}
+
+.banner {
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--text);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.banner--offline {
+  border-color: var(--offline);
+  color: var(--muted);
+}
+
+.banner--breach {
+  border-color: var(--breach);
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.banner__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.banner__title--breach {
+  color: var(--breach);
+  font-weight: 600;
+}
+
+.event-row {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.event-row time,
+.mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pill {
+  display: inline-block;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #0e1620;
+}
+
+.pill--exit { background: var(--breach); color: #fff; }
+.pill--enter { background: var(--inside); color: #0e1620; }
+
+.low-confidence {
+  color: var(--dense);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+/* ====== Control panel — dưới-trái, gom nhóm rõ ràng, tự xuống dòng có kiểm soát ====== */
+
+.control-panel {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 1000;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  max-width: calc(100% - 24px);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 160px;
+  flex: 1 1 200px;
+}
+
+.control-group__label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.control-group__row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+select, .btn {
+  min-height: 40px;
+  padding: 6px 12px;
+  font-size: 13px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.btn {
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--muted);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn--danger {
+  color: var(--breach);
+  border-color: var(--breach);
+  background: transparent;
+}
+
+.btn--primary {
+  color: var(--base);
+  background: var(--signal);
+  border-color: var(--signal);
+  font-weight: 600;
+}
+
+.btn--logout {
+  color: var(--muted);
+  background: transparent;
+}
+
+/* ====== Modal ====== */
+
+.modal-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.modal-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 20px;
+  width: 100%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.modal-card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.icon-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 20px;
+  cursor: pointer;
+  line-height: 1;
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.icon-btn:hover {
+  color: var(--text);
+}
+
+.empty-state {
+  color: var(--muted);
+  text-align: center;
+  margin-top: 20px;
+  font-size: 13px;
+}
+
+/* ====== Leaflet — nhãn tên vùng trên bản đồ ====== */
 
 .geofence-label {
+  font-family: var(--sans);
   font-weight: 600;
   font-size: 12px;
-  color: #333;
+  color: #1a1a1a;
   border: none;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
